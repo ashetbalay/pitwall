@@ -1,0 +1,10 @@
+{
+  "name": "pitwall-ui",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test tests/analysis.test.js",
+    "check": "node --check frontend/app.js && node --check frontend/data.js && node --check frontend/analysis.js"
+  }
+}
