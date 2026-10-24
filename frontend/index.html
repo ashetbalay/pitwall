@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8f9fb">
+    <meta name="description" content="Pitwall — результаты гонок Формулы-1, темп, пит-стопы и сравнение пилотов. Сезоны с 2025 года.">
+    <title>Pitwall — Formula 1 Race Lab</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">К содержимому</a>
+    <header class="header">
+      <div class="header-inner">
+        <a class="brand" href="#/" aria-label="Pitwall — к календарю"><span class="brand-symbol">///</span>pitwall<span class="brand-dot">.</span></a>
+        <span class="header-divider"></span><span class="brand-subtitle">FORMULA 1 RACE LAB</span>
+        <nav class="header-nav" aria-label="Основная навигация"><a href="#/" class="nav-active">Гонки</a><button class="text-button" id="about-button">О проекте <span>↗</span></button></nav>
+        <div class="season-picker"><button id="season-button" class="season-button" aria-expanded="false" aria-controls="season-menu">Сезон <strong id="season-label">2026</strong><span class="chevron">⌄</span></button><div id="season-menu" class="season-menu" hidden></div></div>
+      </div>
+    </header>
+    <main id="main" tabindex="-1"><div class="initial-loading"><span class="spinner"></span> Загружаем календарь гонок…</div></main>
+    <footer class="footer"><div><a class="brand footer-brand" href="#/">pitwall<span class="brand-dot">.</span></a><span>Для тех, кто видит больше финишного флага.</span></div><span>Независимый проект · Данные <a href="https://api.jolpi.ca" target="_blank" rel="noreferrer">Jolpica</a> и <a href="https://openf1.org" target="_blank" rel="noreferrer">OpenF1</a></span></footer>
+    <dialog id="about-dialog"><button class="dialog-close" aria-label="Закрыть">×</button><span class="eyebrow">THE PROJECT</span><h2>Гонка заканчивается.<br>Интерес — нет.</h2><p>Pitwall помогает разбирать завершённые Гран-при: изучать результаты, сравнивать круги пилотов и смотреть пит-стопы.</p><p>Отсчёт — с сезона 2025. Гонка открывается после публикации результата. Время старта отображается в часовом поясе вашего устройства.</p><p>Источники — Jolpica и OpenF1. Данные могут поступать с задержкой. Проект не связан с Formula 1 или FIA.</p><button class="primary-button dialog-done">К гонкам →</button></dialog>
+  </body>
+</html>
