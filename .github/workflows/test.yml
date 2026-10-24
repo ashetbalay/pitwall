@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --python ${{ matrix.python }}
+      - run: uv run --frozen --python ${{ matrix.python }} pytest -q
+
+  frontend:
+    name: JavaScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run check
+      - run: npm test
+
+  container:
+    name: Docker smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pitwall:ci .
+      - run: docker run --detach --name pitwall-ci -p 127.0.0.1:8000:8000 pitwall:ci
+      - name: Wait for application and verify UI
+        shell: python
+        run: |
+          import json
+          import time
+          from urllib.request import urlopen
+
+          for attempt in range(60):
+              try:
+                  with urlopen('http://127.0.0.1:8000/api/health', timeout=2) as response:
+                      assert json.load(response) == {'status': 'ok'}
+                  break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit('Container did not become ready')
+          with urlopen('http://127.0.0.1:8000/', timeout=2) as response:
+              assert 'Pitwall' in response.read().decode()
+      - name: Container logs
+        if: failure()
+        run: docker logs pitwall-ci
+      - name: Stop container
+        if: always()
+        run: docker rm --force pitwall-ci || true

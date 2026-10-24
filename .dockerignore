@@ -1,0 +1,8 @@
+.git
+.venv
+.openai
+__pycache__
+.pytest_cache
+tests
+*.sqlite3
+*.sqlite3-*
