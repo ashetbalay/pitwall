@@ -4,7 +4,9 @@ COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv==0.12.15 && uv sync --frozen --no-dev
 COPY backend ./backend
 COPY frontend ./frontend
-RUN useradd --create-home pitwall && mkdir -p /app/.openai/local && chown -R pitwall:pitwall /app/.openai
+COPY alembic.ini ./
+COPY migrations ./migrations
+RUN useradd --create-home pitwall
 USER pitwall
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

@@ -19,6 +19,20 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.11', '3.13']
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pitwall
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: pitwall_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pitwall -d pitwall_test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://pitwall:test_password@127.0.0.1:5432/pitwall_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,8 +58,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t pitwall:ci .
-      - run: docker run --detach --name pitwall-ci -p 127.0.0.1:8000:8000 pitwall:ci
+      - run: docker compose up --build -d
+      - run: docker compose exec -T app .venv/bin/python -m backend.import_data
+      - run: docker compose exec -T app .venv/bin/alembic check
       - name: Wait for application and verify UI
         shell: python
         run: |
@@ -66,7 +81,7 @@ jobs:
               assert 'Pitwall' in response.read().decode()
       - name: Container logs
         if: failure()
-        run: docker logs pitwall-ci
+        run: docker compose logs
       - name: Stop container
         if: always()
-        run: docker rm --force pitwall-ci || true
+        run: docker compose down --volumes

@@ -21,18 +21,22 @@
 
 ## Запуск
 
-Нужны Python 3.11+ и [uv](https://docs.astral.sh/uv/).
+Нужны Python 3.11+, [uv](https://docs.astral.sh/uv/) и Docker с Compose для PostgreSQL (либо собственный PostgreSQL 17).
 
 ```sh
 git clone https://github.com/ashetbalay/pitwall.git
 cd pitwall
+cp .env.example .env
+docker compose up -d db
 uv sync --frozen
+uv run alembic upgrade head
+uv run python -m backend.import_data
 uv run uvicorn backend.main:app --reload --port 8000
 ```
 
 Приложение: [localhost:8000](http://127.0.0.1:8000). Интерактивная документация API: [localhost:8000/docs](http://127.0.0.1:8000/docs).
 
-**macOS:** после клонирования можно дважды нажать `start.command` в Finder или выполнить:
+**macOS:** после установки зависимостей, запуска PostgreSQL и применения миграций можно дважды нажать `start.command` в Finder или выполнить:
 
 ```sh
 ./start.command
@@ -47,11 +51,13 @@ uv run python launcher.py
 **Docker:**
 
 ```sh
-docker build -t pitwall .
-docker run --rm -p 8000:8000 pitwall
+docker compose up --build -d
+docker compose exec app .venv/bin/python -m backend.import_data
 ```
 
-Если порт занят: `docker run --rm -p 8001:8000 pitwall`, затем откройте `http://127.0.0.1:8001`.
+Compose ждёт готовности PostgreSQL и применяет миграции перед запуском API. Если порт занят, задайте `APP_PORT=8001` в `.env`. База доступна локально на порту 5433; данные сохраняются в volume `postgres_data`. `docker compose down` сохраняет данные, а `docker compose down --volumes` удаляет их.
+
+`DATABASE_URL` используется локальным Python-приложением и Alembic. В контейнерах Compose передаёт отдельные параметры подключения PGHOST/PGUSER/PGPASSWORD/PGDATABASE из `POSTGRES_USER`, `POSTGRES_PASSWORD` и `POSTGRES_DB`. При смене этих значений обновите локальный `DATABASE_URL`; специальные символы в URL нужно percent-encode. Значения по умолчанию предназначены только для локальной разработки. Старый SQLite-кеш больше не используется и не требует переноса.
 
 ## Устройство проекта
 
@@ -59,7 +65,8 @@ docker run --rm -p 8000:8000 pitwall
 |---|---|
 | API и раздача интерфейса | FastAPI, uvicorn |
 | Получение данных | httpx, фиксированные адреса Jolpica / OpenF1 |
-| Кеш | SQLite с TTL и параметризованными запросами |
+| Хранение | PostgreSQL 17, SQLAlchemy 2, psycopg 3, Alembic |
+| Кеш | PostgreSQL JSONB с TTL и атомарным UPSERT |
 | Интерфейс | JavaScript ES modules, CSS, SVG-графики |
 | Аналитика MVP | Медианы и сравнение кругов в `frontend/analysis.js` |
 | Проверки | pytest, node:test, GitHub Actions |
@@ -69,7 +76,12 @@ docker run --rm -p 8000:8000 pitwall
 backend/
   main.py          API, провайдеры и резервные снимки
   domain.py        правила доступности и сопоставление сессий
-  cache.py         SQLite-кеш ответов
+  cache.py         PostgreSQL-кеш ответов
+  database.py      подключение и фабрика сессий
+  models.py        гонки, пилоты, результаты и кеш
+  repository.py    транзакционное сохранение результатов
+  import_data.py   импорт снимков в базу
+migrations/        версионированная схема Alembic
 frontend/
   app.js           маршруты и экраны
   data.js          слой получения данных
@@ -99,12 +111,14 @@ API возвращает 404 для неизвестного сезона/гон
 Для JavaScript нужен Node.js 22+. npm-зависимостей нет, `npm install` не требуется.
 
 ```sh
-uv run --frozen pytest -q
+TEST_DATABASE_URL=postgresql://pitwall:pitwall_local@127.0.0.1:5433/pitwall_test uv run --frozen pytest -q
 npm run check
 npm test
 ```
 
-Тесты проверяют блокировку будущих гонок, работу API, отказ провайдера, сопоставление сессий, кеш, выбор свободного порта и сравнение несовпадающих наборов кругов. Они не требуют доступности внешних F1 API. GitHub Actions запускает Python-тесты на 3.11 и 3.13, JavaScript-проверки и сборку Docker с HTTP smoke test.
+Перед первым запуском тестов создайте базу: `docker compose exec db createdb -U pitwall pitwall_test`.
+
+Тесты проверяют блокировку будущих гонок, работу API, отказ провайдера, сопоставление сессий, кеш, выбор свободного порта и сравнение несовпадающих наборов кругов. Они не требуют доступности внешних F1 API, но используют настоящий PostgreSQL. Каждый тест базы работает в отдельной временной схеме; используйте отдельную тестовую базу (см. CONTRIBUTING.md). Проверяется также upgrade/downgrade Alembic и соответствие моделей схеме. GitHub Actions запускает Python-тесты на 3.11 и 3.13, JavaScript-проверки и сборку Docker с HTTP smoke test.
 
 ## Источники и обновление данных
 
@@ -117,11 +131,13 @@ npm test
 uv run python refresh_data.py --with-timing
 ```
 
+После обновления снимков выполните `uv run python -m backend.import_data`, чтобы обновить базу. Импорт явно заменяет сохранённые результаты снимком, поэтому используйте свежие файлы. Сам HTTP API сохраняет результаты при успешной загрузке и использует базу при сбое провайдера.
+
 Скрипт сохраняет календарь и результаты сезонов с 2025 по текущий, а также подробные данные последней завершённой гонки каждого сезона. Остальная покруговка загружается по запросу. Для обновления снимков в развёрнутом экземпляре нужно повторно развернуть обновлённый код.
 
 ## Границы первой версии
 
-- SQLite используется для кеша, а не как нормализованная база гонок. PostgreSQL и фоновый импорт пока не реализованы.
+- Гонки, пилоты и итоговые результаты хранятся в PostgreSQL. Покруговка, пит-стопы и шины пока хранятся как ответы JSONB в кеше и JSON-снимки; отдельные таблицы и фоновый импорт для них ещё не реализованы.
 - Расчёты сравнения выполняются в клиенте. Серверная аналитика — следующий этап.
 - В анализе исключаются круги без положительного времени и круги выезда из боксов. Въезд в боксы, Safety Car, трафик, шины и топливная загрузка не корректируются.
 - Медианная разница считается по одинаковым номерам кругов; личная медиана каждого пилота — по его доступным кругам. Это описательная статистика, а не оценка качества стратегии.

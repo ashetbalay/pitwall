@@ -1,7 +1,6 @@
 """FastAPI serves the UI and a same-origin API; providers are never user-supplied."""
 import asyncio
 import json
-import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +8,13 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+from backend.database import Database
+from backend.repository import RaceRepository
 from backend.cache import ResponseCache
 from backend.domain import FIRST_SEASON, current_season, is_available, match_session
 
@@ -21,23 +26,32 @@ JOLPICA = "https://api.jolpi.ca/ergast/f1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.cache = ResponseCache(Path(os.environ.get("PITWALL_CACHE", ROOT / ".openai/local/cache.sqlite3")))
+    app.state.database = Database()
+    app.state.cache = ResponseCache(app.state.database.sessions)
+    app.state.races = RaceRepository(app.state.database.sessions)
     app.state.lock = asyncio.Lock()
     app.state.client = httpx.AsyncClient(timeout=35, follow_redirects=True)
-    yield
-    await app.state.client.aclose()
+    try:
+        yield
+    finally:
+        await app.state.client.aclose()
+        await app.state.database.close()
 
 
 app = FastAPI(title="Pitwall API", version="0.1.0", lifespan=lifespan)
 
 
+@app.exception_handler(SQLAlchemyError)
+async def database_error(request, exc):
+    return JSONResponse(status_code=503, content={"detail": "База данных временно недоступна"})
+
 async def upstream(url: str, ttl: int = 3600):
-    cached = app.state.cache.get(url)
+    cached = await app.state.cache.get(url)
     if cached is not None:
         return cached
     # Serialize cache misses and pace calls to respect public API limits.
     async with app.state.lock:
-        cached = app.state.cache.get(url)
+        cached = await app.state.cache.get(url)
         if cached is not None:
             return cached
         try:
@@ -46,7 +60,7 @@ async def upstream(url: str, ttl: int = 3600):
             value = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise HTTPException(503, "Источник данных временно недоступен. Повторите попытку позже.") from exc
-        app.state.cache.set(url, value, ttl)
+        await app.state.cache.set(url, value, ttl)
         await asyncio.sleep(0.4)
         return value
 
@@ -92,10 +106,15 @@ async def race_detail(season: int, round_number: int):
         rows = payload["MRData"]["RaceTable"]["Races"]
         race = rows[0] if rows else None
     except HTTPException:
-        snapshot = DATA / f"season-{season}.json"
-        if not snapshot.exists():
-            raise
-        race = next((r for r in json.loads(snapshot.read_text())["races"] if int(r["round"]) == round_number), None)
+        race = await app.state.races.get(season, round_number)
+        if race is None:
+            snapshot = DATA / f"season-{season}.json"
+            if not snapshot.exists():
+                raise
+            race = next((r for r in json.loads(snapshot.read_text())["races"] if int(r["round"]) == round_number), None)
+    else:
+        if race and is_available(race):
+            await app.state.races.save(season, race)
     if not race:
         raise HTTPException(404, "Результатов гонки пока нет")
     if not is_available(race):
@@ -124,7 +143,12 @@ async def timing(season: int, round_number: int, kind: str = Query("laps", patte
 
 
 @app.get("/api/health")
-def health():
+async def health():
+    try:
+        async with app.state.database.sessions() as db:
+            await db.execute(text("SELECT 1 FROM responses LIMIT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "База данных недоступна или миграции не применены") from exc
     return {"status": "ok"}
 
 

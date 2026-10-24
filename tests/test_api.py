@@ -9,8 +9,7 @@ from backend import main
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("PITWALL_CACHE", str(tmp_path / "cache.sqlite3"))
+def client(database_url):
     with TestClient(main.app) as client:
         yield client
 
@@ -67,7 +66,7 @@ def test_timing_kind_cannot_be_used_as_arbitrary_url(client):
 
 
 def test_saved_timing_works_without_openf1_session_lookup(client, monkeypatch, tmp_path):
-    race = {"round": "1", "date": "2025-03-16", "time": "04:00:00Z", "Circuit": {"circuitId": "albert_park"}, "Results": [{"position": "1"}], "session_key": 99}
+    race = {"round": "1", "date": "2025-03-16", "time": "04:00:00Z", "Circuit": {"circuitId": "albert_park"}, "Results": [{"position": "1", "points": "25", "Driver": {"driverId": "norris", "givenName": "Lando", "familyName": "Norris"}}], "session_key": 99}
     (tmp_path / "season-2025.json").write_text(json.dumps({"races": [race]}))
     (tmp_path / "timing-99-laps.json").write_text(json.dumps([{"lap_number": 1, "lap_duration": 90}]))
     monkeypatch.setattr(main, "DATA", tmp_path)
