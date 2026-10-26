@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.version import VERSION
 from backend.database import Database
 from backend.repository import RaceRepository
 from backend.cache import ResponseCache
@@ -38,7 +39,7 @@ async def lifespan(app: FastAPI):
         await app.state.database.close()
 
 
-app = FastAPI(title="Pitwall API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Pitwall API", version=VERSION, lifespan=lifespan)
 
 
 @app.exception_handler(SQLAlchemyError)
@@ -140,6 +141,11 @@ async def timing(season: int, round_number: int, kind: str = Query("laps", patte
     if snapshot.exists():
         return json.loads(snapshot.read_text())
     return await upstream(f"{OPENF1}/{kind}?session_key={session['session_key']}", 86400)
+
+
+@app.get("/api/version")
+def version():
+    return {"version": VERSION}
 
 
 @app.get("/api/health")

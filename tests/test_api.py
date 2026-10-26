@@ -17,6 +17,9 @@ def client(database_url):
 def test_api_and_ui_are_served_together(client):
     assert client.get("/api/health").json() == {"status": "ok"}
     assert "Pitwall" in client.get("/").text
+    from backend.version import VERSION
+    assert client.get("/api/version").json() == {"version": VERSION}
+    assert client.get("/openapi.json").json()["info"]["version"] == VERSION
 
 
 def test_season_range_starts_at_2025(client):
